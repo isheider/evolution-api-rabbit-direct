@@ -666,14 +666,24 @@ export class WAStartupService {
 
       if (amqp) {
         if (Array.isArray(rabbitmqLocal) && rabbitmqLocal.includes(we)) {
-          const exchangeName = this.instanceName ?? 'evolution_exchange';
+          const exchangeName = 'evolution_exchange';
 
-          amqp.assertExchange(exchangeName, 'topic', {
+          amqp.assertExchange(exchangeName, 'direct', {
             durable: true,
             autoDelete: false,
           });
 
-          const queueName = `${this.instanceName}.${event}`;
+          const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
+
+          let queueName = serverUrl.includes('https')
+            ? serverUrl.split('https://')[1].split('.')[0]
+            : serverUrl.replace(':', '_');
+
+          const bindName = queueName;
+
+          queueName = `recieve_${queueName}`;
+
+          // const queueName = `${this.instanceName}.${event}`;
 
           amqp.assertQueue(queueName, {
             durable: true,
@@ -683,7 +693,7 @@ export class WAStartupService {
             },
           });
 
-          amqp.bindQueue(queueName, exchangeName, event);
+          amqp.bindQueue(queueName, exchangeName, bindName);
 
           const message = {
             event,
@@ -698,7 +708,7 @@ export class WAStartupService {
             message['apikey'] = instanceApikey;
           }
 
-          amqp.publish(exchangeName, event, Buffer.from(JSON.stringify(message)));
+          amqp.publish(exchangeName, bindName, Buffer.from(JSON.stringify(message)));
 
           if (this.configService.get<Log>('LOG').LEVEL.includes('WEBHOOKS')) {
             const logData = {
