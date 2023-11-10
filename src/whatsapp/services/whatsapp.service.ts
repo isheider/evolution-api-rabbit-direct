@@ -583,7 +583,7 @@ export class WAStartupService {
     const webhookGlobal = this.configService.get<Webhook>('WEBHOOK');
     const webhookLocal = this.localWebhook.events;
     const websocketLocal = this.localWebsocket.events;
-    const rabbitmqLocal = this.localRabbitmq.events;
+    // const rabbitmqLocal = this.localRabbitmq.events;
     const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
     const we = event.replace(/[.-]/gm, '_').toUpperCase();
     const transformedWe = we.replace(/_/gm, '-').toLowerCase();
@@ -599,15 +599,27 @@ export class WAStartupService {
       const amqp = getAMQP();
 
       if (amqp) {
-        if (Array.isArray(rabbitmqLocal) && rabbitmqLocal.includes(we)) {
-          const exchangeName = this.instanceName ?? 'evolution_exchange';
+        if (['MESSAGES_UPSERT'].includes(we)) {
+          const exchangeName = 'evolution_exchange';
 
-          amqp.assertExchange(exchangeName, 'topic', {
+          amqp.assertExchange(exchangeName, 'direct', {
             durable: true,
             autoDelete: false,
           });
 
-          const queueName = `${this.instanceName}.${event}`;
+          const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
+
+          let queueName = serverUrl.includes('https')
+            ? serverUrl.split('https://')[1].split('.')[0]
+            : serverUrl.replace(':', '_');
+
+          const bindName = queueName;
+
+          queueName = `recieve_${queueName}`;
+
+          // const queueName = `${this.instanceName}.${event}`;
+
+          // const queueName = `${this.instanceName}.${event}`;
 
           amqp.assertQueue(queueName, {
             durable: true,
@@ -617,7 +629,7 @@ export class WAStartupService {
             },
           });
 
-          amqp.bindQueue(queueName, exchangeName, event);
+          amqp.bindQueue(queueName, exchangeName, bindName);
 
           const message = {
             event,
@@ -632,7 +644,7 @@ export class WAStartupService {
             message['apikey'] = instanceApikey;
           }
 
-          amqp.publish(exchangeName, event, Buffer.from(JSON.stringify(message)));
+          amqp.publish(exchangeName, bindName, Buffer.from(JSON.stringify(message)));
         }
       }
     }
@@ -1088,7 +1100,7 @@ export class WAStartupService {
         ...options,
         auth: {
           creds: this.instance.authState.state.creds,
-          keys: makeCacheableSignalKeyStore(this.instance.authState.state.keys, P({ level: 'error' })),
+          keys: makeCacheableSignalKeyStore(this.instance.authState.state.keys, P({ level: 'error' }) as any),
         },
         logger: P({ level: this.logBaileys }),
         printQRInTerminal: false,
@@ -2718,7 +2730,7 @@ export class WAStartupService {
         'buffer',
         {},
         {
-          logger: P({ level: 'error' }),
+          logger: P({ level: 'error' }) as any,
           reuploadRequest: this.client.updateMediaMessage,
         },
       );

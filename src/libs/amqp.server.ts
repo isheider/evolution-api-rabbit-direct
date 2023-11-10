@@ -1,6 +1,6 @@
 import * as amqp from 'amqplib/callback_api';
 
-import { configService, Rabbitmq } from '../config/env.config';
+import { configService, HttpServer, Rabbitmq } from '../config/env.config';
 import { Logger } from '../config/logger.config';
 
 const logger = new Logger('AMQP');
@@ -24,7 +24,7 @@ export const initAMQP = () => {
 
         const exchangeName = 'evolution_exchange';
 
-        channel.assertExchange(exchangeName, 'topic', {
+        channel.assertExchange(exchangeName, 'direct', {
           durable: true,
           autoDelete: false,
         });
@@ -32,6 +32,30 @@ export const initAMQP = () => {
         amqpChannel = channel;
 
         logger.info('AMQP initialized');
+
+        // run rabbitmq
+
+        const serverUrl = configService.get<HttpServer>('SERVER').URL;
+
+        let queueName = serverUrl.includes('https')
+          ? serverUrl.split('https://')[1].split('.')[0]
+          : serverUrl.replace(':', '_');
+
+        const bindName = queueName;
+
+        queueName = `recieve_${queueName}`;
+
+        amqpChannel.assertQueue(queueName, {
+          durable: true,
+          autoDelete: false,
+          arguments: {
+            'x-queue-type': 'quorum',
+          },
+        });
+
+        amqpChannel.bindQueue(queueName, exchangeName, bindName);
+        logger.info(`queue name: ${queueName}`);
+
         resolve();
       });
     });
@@ -40,4 +64,48 @@ export const initAMQP = () => {
 
 export const getAMQP = (): amqp.Channel | null => {
   return amqpChannel;
+};
+
+export const initQueues = (instanceName: string, events: string[]) => {
+  if (!events || !events.length) return;
+
+  const queues = events.map((event) => {
+    return `${event.replace(/_/g, '.').toLowerCase()}`;
+  });
+
+  queues.forEach(() => {
+    const amqp = getAMQP();
+    const exchangeName = 'evolution_exchange';
+
+    amqp.assertExchange(exchangeName, 'direct', {
+      durable: true,
+      autoDelete: false,
+    });
+
+    const serverUrl = configService.get<HttpServer>('SERVER').URL;
+
+    let queueName = serverUrl.includes('https')
+      ? serverUrl.split('https://')[1].split('.')[0]
+      : serverUrl.replace(':', '_');
+
+    const bindName = queueName;
+
+    queueName = `recieve_${queueName}`;
+
+    logger.info(`queue name: ${queueName}`);
+
+    amqp.assertQueue(queueName, {
+      durable: true,
+      autoDelete: false,
+      arguments: {
+        'x-queue-type': 'quorum',
+      },
+    });
+
+    amqp.bindQueue(queueName, exchangeName, bindName);
+  });
+};
+
+export const removeQueues = (instanceName: string, events: string[]) => {
+  if (!events || !events.length) return;
 };
